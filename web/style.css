@@ -1,0 +1,59 @@
+body {
+    font-family:
+        Arial,
+        sans-serif;
+
+    margin: 40px;
+
+    background: #f5f5f5;
+}
+
+main {
+    max-width: 900px;
+    margin: auto;
+
+    background: white;
+
+    padding: 30px;
+
+    border-radius: 10px;
+}
+
+table {
+    width: 100%;
+
+    border-collapse: collapse;
+
+    margin-top: 20px;
+}
+
+th,
+td {
+    padding: 12px;
+
+    border-bottom:
+        1px solid #ddd;
+
+    text-align: left;
+}
+
+th {
+    background: #eee;
+}
+
+.status {
+    font-weight: bold;
+}
+
+.status-confirmed {
+    color: #18713b;
+}
+
+.status-pending {
+    color: #a15c00;
+}
+
+.empty-message {
+    color: #666;
+    text-align: center;
+}

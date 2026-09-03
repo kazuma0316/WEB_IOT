@@ -9,5 +9,16 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "mpdule"
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kazuma0316/WEB_IOT.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kazuma0316/WEB_IOT/issues"
+  },
+  "homepage": "https://github.com/kazuma0316/WEB_IOT#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
 }
