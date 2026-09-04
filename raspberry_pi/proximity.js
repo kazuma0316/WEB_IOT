@@ -6,12 +6,10 @@ import readline from "node:readline";
 // ==============================
 
 // このRaspberry PiのID
+// advertise時のnameと同じ名前にする
 const MY_DEVICE_ID = "device-a";
 
-// 接近を検出したい相手のID
-const TARGET_DEVICE_ID = "device-b";
-
-// A・B共通のUUID
+// 全端末共通のUUID
 const UUID = "8f3a2c10-7b21-4e58-9a65-21c489d87f01";
 
 // 接近判定のRSSIしきい値
@@ -23,27 +21,40 @@ const REQUIRED_COUNT = 3;
 // 接近イベント発生後のクールダウン時間
 const COOLDOWN_MS = 30 * 1000;
 
+
 // ==============================
 // サーバー設定
 // ==============================
 
-// ★ここをWindows PCのIPv4アドレスに変更する
-const SERVER_URL = "http://192.168.1.25:3000/event";
+// Windows PCのIPv4アドレス
+const SERVER_URL = "http://192.168.1.145:3000/event";
 
 
 // ==============================
 // 状態
 // ==============================
 
-// TARGET_DEVICE_IDに対応するBluetoothアドレス
-// MACアドレスは事前設定せずscan結果から自動取得する
-let targetAddress = null;
+/*
+各Bluetooth端末の情報を保存する。
 
-// RSSIがしきい値以上だった連続回数
-let consecutiveCount = 0;
+例:
 
-// 最後にイベントが発生した時刻
-let lastEventTime = 0;
+devices = Map {
+    "AA:BB:CC:DD:EE:01" => {
+        name: "device-b",
+        consecutiveCount: 2,
+        lastEventTime: 0
+    },
+
+    "AA:BB:CC:DD:EE:02" => {
+        name: "device-c",
+        consecutiveCount: 1,
+        lastEventTime: 0
+    }
+}
+*/
+
+const devices = new Map();
 
 
 // ==============================
@@ -66,9 +77,91 @@ const rl = readline.createInterface({
 // ==============================
 
 function cleanLine(line) {
+
     return line
         .replace(/\x1b\[[0-9;]*m/g, "")
         .trim();
+}
+
+
+// ==============================
+// Bluetooth端末取得
+// ==============================
+
+function getDevice(address) {
+
+    if (!devices.has(address)) {
+
+        devices.set(
+            address,
+            {
+                name: null,
+                consecutiveCount: 0,
+                lastEventTime: 0
+            }
+        );
+    }
+
+    return devices.get(address);
+}
+
+
+// ==============================
+// Bluetooth端末名更新
+// ==============================
+
+function updateDeviceName(address, name) {
+
+    if (!name) {
+        return;
+    }
+
+    name = name.trim();
+
+    if (!name) {
+        return;
+    }
+
+    /*
+    bluetoothctlによってはname部分に
+
+    AA:BB:CC:DD:EE:FF
+
+    や
+
+    AA-BB-CC-DD-EE-FF
+
+    のようなMACアドレス相当の文字列が
+    表示されることがある。
+
+    その場合は端末名として扱わない。
+    */
+
+    const normalizedName = name
+        .replace(/-/g, ":")
+        .toLowerCase();
+
+    const normalizedAddress = address.toLowerCase();
+
+    if (normalizedName === normalizedAddress) {
+        return;
+    }
+
+
+    const device = getDevice(address);
+
+    const oldName = device.name;
+
+    device.name = name;
+
+
+    // 名前が新しく判明した場合だけ表示
+    if (oldName !== name) {
+
+        console.log(
+            `Device identified: ${address} -> ${name}`
+        );
+    }
 }
 
 
@@ -113,6 +206,7 @@ async function sendEventToServer(event) {
         console.log("Event sent successfully.");
 
         if (responseText) {
+
             console.log(
                 "Server response:",
                 responseText
@@ -125,7 +219,6 @@ async function sendEventToServer(event) {
             "Failed to send event:",
             error.message
         );
-
     }
 }
 
@@ -149,24 +242,28 @@ rl.on("line", (rawLine) => {
     // 新しいBluetooth端末を発見
     //
     // 例:
+    //
     // [NEW] Device AA:BB:CC:DD:EE:FF device-b
     // ----------------------------------
 
     let match = line.match(
-        /\[NEW\] Device ([0-9A-Fa-f:]{17}) (.+)/
+        /\[NEW\] Device ([0-9A-Fa-f:]{17})(?: (.+))?/
     );
 
     if (match) {
 
         const address = match[1];
-        const name = match[2].trim();
+        const name = match[2];
 
-        if (name === TARGET_DEVICE_ID) {
+        // 端末情報を作成
+        getDevice(address);
 
-            targetAddress = address;
+        // 名前が取得できた場合
+        if (name) {
 
-            console.log(
-                `Found ${TARGET_DEVICE_ID}`
+            updateDeviceName(
+                address,
+                name
             );
         }
     }
@@ -176,7 +273,10 @@ rl.on("line", (rawLine) => {
     // Name / Aliasが後から通知された場合
     //
     // 例:
+    //
     // [CHG] Device AA:BB:CC:DD:EE:FF Name: device-b
+    //
+    // [CHG] Device AA:BB:CC:DD:EE:FF Alias: device-b
     // ----------------------------------
 
     match = line.match(
@@ -186,16 +286,12 @@ rl.on("line", (rawLine) => {
     if (match) {
 
         const address = match[1];
-        const name = match[2].trim();
+        const name = match[2];
 
-        if (name === TARGET_DEVICE_ID) {
-
-            targetAddress = address;
-
-            console.log(
-                `Found ${TARGET_DEVICE_ID}`
-            );
-        }
+        updateDeviceName(
+            address,
+            name
+        );
     }
 
 
@@ -222,11 +318,11 @@ rl.on("line", (rawLine) => {
 
 
     // 0xffffffdf (-33)
-    //      ↓
+    //
     // rssiMatch[2] = -33
     //
     // RSSI: -55
-    //      ↓
+    //
     // rssiMatch[3] = -55
 
     const rssi = Number(
@@ -235,19 +331,31 @@ rl.on("line", (rawLine) => {
 
 
     // ----------------------------------
-    // 相手端末がまだ特定されていない
+    // 端末情報を取得
     // ----------------------------------
 
-    if (targetAddress === null) {
+    const device = getDevice(address);
+
+
+    // ----------------------------------
+    // まだ端末名が分からない
+    // ----------------------------------
+
+    if (!device.name) {
+
+        console.log(
+            `Unknown device ${address}: waiting for name`
+        );
+
         return;
     }
 
 
     // ----------------------------------
-    // 相手端末以外は無視
+    // 自分自身は無視
     // ----------------------------------
 
-    if (address !== targetAddress) {
+    if (device.name === MY_DEVICE_ID) {
         return;
     }
 
@@ -259,7 +367,7 @@ rl.on("line", (rawLine) => {
     if (Number.isNaN(rssi)) {
 
         console.log(
-            `${TARGET_DEVICE_ID} RSSI: invalid`
+            `${device.name} RSSI: invalid`
         );
 
         return;
@@ -273,7 +381,7 @@ rl.on("line", (rawLine) => {
     if (rssi === 0) {
 
         console.log(
-            `${TARGET_DEVICE_ID} RSSI: unavailable`
+            `${device.name} RSSI: unavailable`
         );
 
         return;
@@ -287,7 +395,7 @@ rl.on("line", (rawLine) => {
     if (rssi < -127 || rssi > -1) {
 
         console.log(
-            `${TARGET_DEVICE_ID} RSSI: invalid (${rssi})`
+            `${device.name} RSSI: invalid (${rssi})`
         );
 
         return;
@@ -295,11 +403,19 @@ rl.on("line", (rawLine) => {
 
 
     console.log(
-        `${TARGET_DEVICE_ID} RSSI: ${rssi} dBm`
+        `${device.name} RSSI: ${rssi} dBm`
     );
 
 
-    checkProximity(rssi);
+    // ----------------------------------
+    // 接近判定
+    // ----------------------------------
+
+    checkProximity(
+        address,
+        device,
+        rssi
+    );
 });
 
 
@@ -307,7 +423,11 @@ rl.on("line", (rawLine) => {
 // 接近判定
 // ==============================
 
-function checkProximity(rssi) {
+function checkProximity(
+    address,
+    device,
+    rssi
+) {
 
     // ----------------------------------
     // RSSIがしきい値以上
@@ -315,18 +435,21 @@ function checkProximity(rssi) {
 
     if (rssi >= RSSI_THRESHOLD) {
 
-        consecutiveCount++;
+        device.consecutiveCount++;
 
         console.log(
-            `close count: ${consecutiveCount}/${REQUIRED_COUNT}`
+            `${device.name} close count: ` +
+            `${device.consecutiveCount}/${REQUIRED_COUNT}`
         );
 
     } else {
 
-        // 遠くなったのでリセット
-        consecutiveCount = 0;
+        // この端末だけ連続回数をリセット
+        device.consecutiveCount = 0;
 
-        console.log("Not close");
+        console.log(
+            `${device.name}: Not close`
+        );
 
         return;
     }
@@ -336,13 +459,13 @@ function checkProximity(rssi) {
     // 必要回数に達していない
     // ----------------------------------
 
-    if (consecutiveCount < REQUIRED_COUNT) {
+    if (device.consecutiveCount < REQUIRED_COUNT) {
         return;
     }
 
 
     // 必要回数に到達
-    consecutiveCount = 0;
+    device.consecutiveCount = 0;
 
 
     // ==============================
@@ -352,15 +475,21 @@ function checkProximity(rssi) {
     const now = Date.now();
 
 
-    if (now - lastEventTime < COOLDOWN_MS) {
+    if (
+        now - device.lastEventTime
+        < COOLDOWN_MS
+    ) {
 
-        console.log("Cooldown...");
+        console.log(
+            `${device.name}: Cooldown...`
+        );
 
         return;
     }
 
 
-    lastEventTime = now;
+    // この端末だけクールダウン開始
+    device.lastEventTime = now;
 
 
     // ==============================
@@ -371,7 +500,7 @@ function checkProximity(rssi) {
 
         deviceId: MY_DEVICE_ID,
 
-        detectedDevice: TARGET_DEVICE_ID,
+        detectedDevice: device.name,
 
         rssi: rssi,
 
@@ -388,6 +517,7 @@ function checkProximity(rssi) {
     console.log("PROXIMITY EVENT");
     console.log(`me:     ${event.deviceId}`);
     console.log(`target: ${event.detectedDevice}`);
+    console.log(`address:${address}`);
     console.log(`rssi:   ${event.rssi}`);
     console.log(`time:   ${event.timestamp}`);
     console.log("========================");
@@ -501,6 +631,9 @@ setTimeout(
 
 
 // 共通UUID
+//
+// このUUIDをadvertiseしている端末だけを
+// scan対象にする
 setTimeout(
     () => send(`uuids ${UUID}`),
     3500
