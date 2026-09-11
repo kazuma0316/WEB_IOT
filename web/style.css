@@ -19,26 +19,37 @@ main {
     border-radius: 10px;
 }
 
-table {
-    width: 100%;
-
-    border-collapse: collapse;
-
+.event-card {
     margin-top: 20px;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
 }
 
-th,
-td {
-    padding: 12px;
-
-    border-bottom:
-        1px solid #ddd;
-
-    text-align: left;
+.observations {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
 }
 
-th {
-    background: #eee;
+.observation-card {
+    padding: 16px;
+    background: #f7f8fa;
+    border-radius: 6px;
+}
+
+.observation-card p {
+    margin: 8px 0;
+}
+
+.recording {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+audio {
+    width: 100%;
 }
 
 .status {

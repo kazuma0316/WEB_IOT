@@ -496,7 +496,9 @@ function checkProximity(
     // 接近イベント生成
     // ==============================
 
-    const event = {
+    // Future sensor values live in one event object. Until the hardware is
+    // connected, null clearly represents data that has not been collected.
+    const eventData = {
 
         deviceId: MY_DEVICE_ID,
 
@@ -504,7 +506,19 @@ function checkProximity(
 
         rssi: rssi,
 
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        heartRate: { bpm: null },
+        gps: {
+            latitude: null,
+            longitude: null,
+            altitude: null,
+            accuracy: null
+        },
+        recording: {
+            fileName: null,
+            url: null,
+            durationSec: null
+        }
     };
 
 
@@ -515,16 +529,16 @@ function checkProximity(
     console.log("");
     console.log("========================");
     console.log("PROXIMITY EVENT");
-    console.log(`me:     ${event.deviceId}`);
-    console.log(`target: ${event.detectedDevice}`);
+    console.log(`me:     ${eventData.deviceId}`);
+    console.log(`target: ${eventData.detectedDevice}`);
     console.log(`address:${address}`);
-    console.log(`rssi:   ${event.rssi}`);
-    console.log(`time:   ${event.timestamp}`);
+    console.log(`rssi:   ${eventData.rssi}`);
+    console.log(`time:   ${eventData.timestamp}`);
     console.log("========================");
 
     console.log(
         "EVENT JSON:",
-        JSON.stringify(event)
+        JSON.stringify(eventData)
     );
 
 
@@ -532,7 +546,7 @@ function checkProximity(
     // サーバーへ送信
     // ==============================
 
-    sendEventToServer(event);
+    sendEventToServer(eventData);
 }
 
 

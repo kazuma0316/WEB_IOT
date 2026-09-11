@@ -21,6 +21,25 @@ app.use(express.json());
 // 既存の web フォルダをブラウザ向けに配信
 app.use(express.static(path.join(__dirname, "../web")));
 
+// Older clients omit these fields. Normalize them so all observations have a
+// stable shape while the sensor hardware is added later.
+function normalizeSensorData(body) {
+    return {
+        heartRate: { bpm: body.heartRate?.bpm ?? null },
+        gps: {
+            latitude: body.gps?.latitude ?? null,
+            longitude: body.gps?.longitude ?? null,
+            altitude: body.gps?.altitude ?? null,
+            accuracy: body.gps?.accuracy ?? null
+        },
+        recording: {
+            fileName: body.recording?.fileName ?? null,
+            url: body.recording?.url ?? null,
+            durationSec: body.recording?.durationSec ?? null
+        }
+    };
+}
+
 
 // サーバー動作確認
 app.get("/", (req, res) => {
@@ -121,7 +140,8 @@ app.post("/event", (req, res) => {
         detectedDevice,
         rssi,
         timestamp,
-        receivedAt
+        receivedAt,
+        ...normalizeSensorData(body)
     };
 
     targetEvent.updatedAt = receivedAt;
