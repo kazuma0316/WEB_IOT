@@ -2,7 +2,11 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { getLatestGps, startGpsReader } from "./gps.js";
 import { getHeartRate } from "./heart-rate.js";
-import { recordWav, uploadRecording } from "./recording.js";
+import {
+    recordWav,
+    stopActiveRecordings,
+    uploadRecording
+} from "./recording.js";
 
 // ==============================
 // 設定
@@ -67,9 +71,10 @@ devices = Map {
 */
 
 const devices = new Map();
+let shuttingDown = false;
 
 // GPSは起動時から読み続け、イベント時には最新の有効値をコピーする。
-startGpsReader(GPS_DEVICE_PATH, GPS_BAUD_RATE);
+const gpsStream = startGpsReader(GPS_DEVICE_PATH, GPS_BAUD_RATE);
 
 
 // ==============================
@@ -284,9 +289,18 @@ async function handleProximityEvent(address, device, rssi) {
             alsaDevice: ALSA_DEVICE,
             durationSec: RECORDING_DURATION_SEC
         });
+
+        if (shuttingDown) {
+            return;
+        }
+
         eventData.recording = await uploadRecording(localRecording, RECORDING_UPLOAD_URL);
     } catch (error) {
         console.error(`Recording failed: ${error.message}`);
+    }
+
+    if (shuttingDown) {
+        return;
     }
 
     console.log("");
@@ -300,7 +314,9 @@ async function handleProximityEvent(address, device, rssi) {
     console.log("========================");
     console.log("EVENT JSON:", JSON.stringify(eventData));
 
-    await sendEventToServer(eventData);
+    if (!shuttingDown) {
+        await sendEventToServer(eventData);
+    }
 }
 
 
@@ -609,7 +625,15 @@ bluetoothctl.on(
 // bluetoothctlにコマンドを送信
 // ==============================
 
-function send(command) {
+function send(command, allowDuringShutdown = false) {
+
+    if (shuttingDown && !allowDuringShutdown) {
+        return;
+    }
+
+    if (!bluetoothctl.stdin.writable) {
+        return;
+    }
 
     console.log(
         `COMMAND: ${command}`
@@ -704,22 +728,44 @@ process.on(
     "SIGINT",
     () => {
 
+        if (shuttingDown) {
+            console.log("Force stopping...");
+            process.exit(130);
+        }
+
+        shuttingDown = true;
+
         console.log(
-            "\nStopping Bluetooth scan..."
+            "\nStopping Bluetooth scan, GPS, and recording..."
         );
 
-        send("scan off");
+        // 終了開始後は新しいセンサー処理やイベント送信を行わない。
+        gpsStream.destroy();
+        stopActiveRecordings();
+        rl.close();
+
+        send("scan off", true);
 
 
         setTimeout(
             () => {
 
-                bluetoothctl.kill();
+                if (!bluetoothctl.killed) {
+                    bluetoothctl.kill("SIGTERM");
+                }
 
-                process.exit(0);
+                // 子プロセスが応答しない場合でも終了できるようにする。
+                setTimeout(() => process.exit(0), 500);
 
             },
             500
         );
     }
 );
+
+// 終了中にbluetoothctl側のパイプが先に閉じても異常終了させない。
+bluetoothctl.stdin.on("error", error => {
+    if (!shuttingDown) {
+        console.error("bluetoothctl input error:", error.message);
+    }
+});

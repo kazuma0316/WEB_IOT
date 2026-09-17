@@ -4,6 +4,8 @@ import { readFile, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+const activeRecorders = new Set();
+
 function safeDeviceId(deviceId) {
     return deviceId.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
@@ -28,14 +30,25 @@ export function recordWav({ deviceId, alsaDevice, durationSec }) {
 
     return new Promise((resolve, reject) => {
         const recorder = spawn("arecord", args, { stdio: ["ignore", "ignore", "pipe"] });
+        activeRecorders.add(recorder);
         let errorOutput = "";
         recorder.stderr.on("data", data => { errorOutput += data.toString(); });
-        recorder.on("error", reject);
+        recorder.on("error", error => {
+            activeRecorders.delete(recorder);
+            reject(error);
+        });
         recorder.on("close", code => {
+            activeRecorders.delete(recorder);
             if (code === 0) resolve({ fileName, filePath, durationSec });
             else reject(new Error(errorOutput.trim() || `arecord exited with code ${code}`));
         });
     });
+}
+
+export function stopActiveRecordings() {
+    for (const recorder of activeRecorders) {
+        recorder.kill("SIGTERM");
+    }
 }
 
 export async function uploadRecording(recording, uploadUrl) {
