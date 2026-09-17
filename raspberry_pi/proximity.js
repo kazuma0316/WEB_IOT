@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { getLatestGps, startGpsReader } from "./gps.js";
+import { getHeartRate } from "./heart-rate.js";
+import { recordWav, uploadRecording } from "./recording.js";
 
 // ==============================
 // 設定
@@ -27,7 +30,16 @@ const COOLDOWN_MS = 30 * 1000;
 // ==============================
 
 // Windows PCのIPv4アドレス
-const SERVER_URL = "http://192.168.1.145:3000/event";
+const SERVER_BASE_URL = "http://192.168.1.145:3000";
+const SERVER_URL = `${SERVER_BASE_URL}/event`;
+const RECORDING_UPLOAD_URL = `${SERVER_BASE_URL}/recording`;
+
+// センサー・録音設定
+const GPS_DEVICE_PATH = "/dev/serial0";
+const GPS_BAUD_RATE = 9600;
+const GPS_MAX_AGE_MS = 30 * 1000;
+const ALSA_DEVICE = "plughw:0,0";
+const RECORDING_DURATION_SEC = 3;
 
 
 // ==============================
@@ -55,6 +67,9 @@ devices = Map {
 */
 
 const devices = new Map();
+
+// GPSは起動時から読み続け、イベント時には最新の有効値をコピーする。
+startGpsReader(GPS_DEVICE_PATH, GPS_BAUD_RATE);
 
 
 // ==============================
@@ -220,6 +235,72 @@ async function sendEventToServer(event) {
             error.message
         );
     }
+}
+
+
+// ==============================
+// 接近確定後のセンサーデータ取得
+// ==============================
+
+async function handleProximityEvent(address, device, rssi) {
+    const eventData = {
+        deviceId: MY_DEVICE_ID,
+        detectedDevice: device.name,
+        rssi,
+        timestamp: new Date().toISOString(),
+        heartRate: { bpm: null },
+        gps: {
+            latitude: null,
+            longitude: null,
+            altitude: null,
+            accuracy: null
+        },
+        recording: {
+            fileName: null,
+            url: null,
+            durationSec: null
+        }
+    };
+
+    // 1つのセンサーが失敗しても、他の取得処理とイベント送信は続ける。
+    try {
+        eventData.gps = getLatestGps(GPS_MAX_AGE_MS);
+        if (eventData.gps.latitude === null) {
+            console.warn("GPS data unavailable: no recent valid fix");
+        }
+    } catch (error) {
+        console.error(`GPS data unavailable: ${error.message}`);
+    }
+
+    try {
+        eventData.heartRate = await getHeartRate();
+    } catch (error) {
+        console.error(`Heart rate unavailable: ${error.message}`);
+    }
+
+    try {
+        const localRecording = await recordWav({
+            deviceId: MY_DEVICE_ID,
+            alsaDevice: ALSA_DEVICE,
+            durationSec: RECORDING_DURATION_SEC
+        });
+        eventData.recording = await uploadRecording(localRecording, RECORDING_UPLOAD_URL);
+    } catch (error) {
+        console.error(`Recording failed: ${error.message}`);
+    }
+
+    console.log("");
+    console.log("========================");
+    console.log("PROXIMITY EVENT");
+    console.log(`me:     ${eventData.deviceId}`);
+    console.log(`target: ${eventData.detectedDevice}`);
+    console.log(`address:${address}`);
+    console.log(`rssi:   ${eventData.rssi}`);
+    console.log(`time:   ${eventData.timestamp}`);
+    console.log("========================");
+    console.log("EVENT JSON:", JSON.stringify(eventData));
+
+    await sendEventToServer(eventData);
 }
 
 
@@ -492,61 +573,8 @@ function checkProximity(
     device.lastEventTime = now;
 
 
-    // ==============================
-    // 接近イベント生成
-    // ==============================
-
-    // Future sensor values live in one event object. Until the hardware is
-    // connected, null clearly represents data that has not been collected.
-    const eventData = {
-
-        deviceId: MY_DEVICE_ID,
-
-        detectedDevice: device.name,
-
-        rssi: rssi,
-
-        timestamp: new Date().toISOString(),
-        heartRate: { bpm: null },
-        gps: {
-            latitude: null,
-            longitude: null,
-            altitude: null,
-            accuracy: null
-        },
-        recording: {
-            fileName: null,
-            url: null,
-            durationSec: null
-        }
-    };
-
-
-    // ==============================
-    // コンソール表示
-    // ==============================
-
-    console.log("");
-    console.log("========================");
-    console.log("PROXIMITY EVENT");
-    console.log(`me:     ${eventData.deviceId}`);
-    console.log(`target: ${eventData.detectedDevice}`);
-    console.log(`address:${address}`);
-    console.log(`rssi:   ${eventData.rssi}`);
-    console.log(`time:   ${eventData.timestamp}`);
-    console.log("========================");
-
-    console.log(
-        "EVENT JSON:",
-        JSON.stringify(eventData)
-    );
-
-
-    // ==============================
-    // サーバーへ送信
-    // ==============================
-
-    sendEventToServer(eventData);
+    // 録音中もBluetooth標準出力の読み取りを止めない。
+    void handleProximityEvent(address, device, rssi);
 }
 
 

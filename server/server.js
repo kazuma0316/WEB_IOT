@@ -1,5 +1,7 @@
 import express from "express";
 import path from "path";
+import { mkdirSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "url";
 
 const app = express();
@@ -7,6 +9,7 @@ const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = 3000;
+const RECORDINGS_DIRECTORY = path.join(__dirname, "data", "recordings");
 
 // A→B と B→A を同じイベントとみなす時間
 const MERGE_WINDOW_MS = 10 * 1000;
@@ -16,7 +19,51 @@ const events = [];
 
 let nextEventId = 1;
 
+mkdirSync(RECORDINGS_DIRECTORY, { recursive: true });
+
+// WAVはJSONへ埋め込まず、独立したバイナリとして受信する。
+app.post(
+    "/recording",
+    express.raw({ type: "audio/wav", limit: "10mb" }),
+    async (req, res) => {
+        try {
+            const requestedName = req.get("X-File-Name") ?? "";
+            const fileName = path.basename(requestedName);
+
+            if (!/^[a-zA-Z0-9_.-]+\.wav$/i.test(fileName)) {
+                return res.status(400).json({
+                    status: "error",
+                    message: "A valid WAV file name is required"
+                });
+            }
+
+            if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+                return res.status(400).json({
+                    status: "error",
+                    message: "WAV data is required"
+                });
+            }
+
+            await writeFile(path.join(RECORDINGS_DIRECTORY, fileName), req.body, { flag: "wx" });
+            res.status(201).json({
+                status: "ok",
+                fileName,
+                url: `/recordings/${encodeURIComponent(fileName)}`
+            });
+        } catch (error) {
+            if (error.code === "EEXIST") {
+                return res.status(409).json({ status: "error", message: "File already exists" });
+            }
+            console.error("Recording upload failed:", error.message);
+            res.status(500).json({ status: "error", message: "Could not save recording" });
+        }
+    }
+);
+
 app.use(express.json());
+
+// アップロード済みWAVをWeb画面のaudio要素から再生できるようにする。
+app.use("/recordings", express.static(RECORDINGS_DIRECTORY));
 
 // 既存の web フォルダをブラウザ向けに配信
 app.use(express.static(path.join(__dirname, "../web")));
