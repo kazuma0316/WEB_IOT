@@ -1,10 +1,23 @@
+/*
+ * ドット絵風フォントをこのフォルダ内のファイルから読み込む。
+ * 外部サービスに繋がなくてよいので、オフラインでも表示が変わらない。
+ * ライセンス: SIL Open Font License 1.1 (fonts/OFL.txt)
+ */
+@font-face {
+    font-family: "DotGothic16";
+    src: url("fonts/DotGothic16-Regular.ttf") format("truetype");
+    font-display: swap;
+}
+
 :root {
     --fg: #000;
     --bg: #fff;
 }
 
 body {
+    /* 先頭が本命。読み込めなかったときは後ろの等幅フォントへ順に下がる */
     font-family:
+        "DotGothic16",
         "SFMono-Regular",
         Consolas,
         "Courier New",
@@ -32,22 +45,14 @@ main {
     margin: 0 auto;
 }
 
-/* 起動コマンド行 */
-.command-line {
+/* ページ見出し */
+.page-title {
     margin: 0;
 
     font-size: 20px;
     font-weight: bold;
 
     white-space: pre-wrap;
-}
-
-.prompt {
-    margin-right: 0.5ch;
-}
-
-.prompt::before {
-    content: "user@raspberrypi:~$";
 }
 
 .meta {
@@ -197,30 +202,41 @@ audio {
    戻したいときはコメント記号を書き戻すだけ。
    ========================================================= */
 
+/* --- 画面上部 --- */
+
+.meta { display: none; }                       /* # Raspberry Pi 接近検出履歴 / 2秒ごとに自動更新 */
+
+/* 上を消すと余白ごと消えてしまうので、見出しとログの間に隙間を足す */
+.page-title { margin-bottom: 1.2em; }
+
+/* .page-title { display: none; } */           /* すれちがいの記録 */
+
 /* --- 1行目（イベントの要約） --- */
 
 /* .log-line .timestamp { display: none; } */   /* [2026-09-17 21:45:31] 検出時刻 */
 /* .log-line .event-id  { display: none; } */   /* #0012 通し番号 */
-/* .log-line .status    { display: none; } */   /* [OK] / [--] 確認状態 */
+ .log-line .status    { display: none; }    /* [OK] / [--] 確認状態 */
 /* .log-line .devices   { display: none; } */   /* pi-a ↔ pi-b 機器ペア */
-/* .log-line .rssi      { display: none; } */   /* avg=-62.4 dBm 平均電波強度 */
-/* .log-line .note      { display: none; } */   /* 双方向確認済み / 片方向のみ */
+ .log-line .rssi      { display: none; }    /* 平均電波強度：-62.4 dBm */
+ .log-line .note      { display: none; }    /* 双方向確認済み / 片方向のみ */
 
 /* --- 2〜3行目（機器ごとの観測値） --- */
 
 /* .log-sub { display: none; } */               /* ↓の個別指定ごと、観測行をまとめて消す */
 
-/* .log-sub .device-name   { display: none; } */  /* pi-a 機器名 */
-/* .log-sub .detected      { display: none; } */  /* detected=pi-b 相手の機器 */
-/* .log-sub .rssi          { display: none; } */  /* rssi=-60.8 dBm 電波強度 */
-/* .log-sub .hr            { display: none; } */  /* hr=72 bpm 心拍 */
-/* .log-sub .gps           { display: none; } */  /* gps=35.68,139.76 ±5m 位置 */
-/* .log-sub .timestamp-raw { display: none; } */  /* t=2026-09-17 21:45:30 観測時刻 */
+ .log-sub .device-name   { display: none; }   /* pi-a 機器名 */
+ .log-sub .detected      { display: none; }   /* 相手：pi-b */
+ .log-sub .rssi          { display: none; }   /* 電波強度：-60.8 dBm */
+/* .log-sub .hr            { display: none; } */  /* 心拍：72 bpm */
+/* .log-sub .gps           { display: none; } */  /* 緯度と経度をまとめて消す */
+/* .log-sub .gps-latitude  { display: none; } */  /* 緯度：35.681200 */
+/* .log-sub .gps-longitude { display: none; } */  /* 経度：139.767100 ±5m */
+/* .log-sub .timestamp-raw { display: none; } */  /* すれちがった日：2026-09-17 21:45:30 */
 /* .log-sub .note          { display: none; } */  /* no data 観測値が無いとき */
 
 /* --- 4行目（録音） --- */
 
 /* .log-sub-deep { display: none; } */          /* 録音の行ごと消す（ファイル名＋プレイヤー） */
 
-/* .log-sub-deep .rec { display: none; } */     /* rec=rec_0012.wav (5s) ファイル名だけ消す */
+ .log-sub-deep .rec { display: none; }      /* 録音：rec_0012.wav (5s) ファイル名だけ消す */
 /* .log-sub-deep audio { display: none; } */    /* 音声プレイヤーだけ消す */

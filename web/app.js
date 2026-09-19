@@ -1,3 +1,11 @@
+/*
+ * この画面を見る人の端末ID。
+ * すれちがいは2台ぶんの記録が届くが、ここで指定した端末の値だけを表示し、
+ * 相手側の観測値は出さない。
+ * raspberry_pi/proximity.js の MY_DEVICE_ID と同じ値にすること。
+ */
+const MY_DEVICE_ID = "device-a";
+
 // 端末ログらしく "2026-09-17 21:45:31" の固定幅で表示する
 const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
     timeZone: "Asia/Tokyo",
@@ -30,11 +38,14 @@ function formatRssi(value) {
     return Number.isFinite(rssi) ? `${Math.round(rssi * 10) / 10} dBm` : "-";
 }
 
-function formatGps(gps) {
-    if (gps?.latitude == null || gps?.longitude == null) return "-";
+// 緯度・経度は割り算の結果で桁が余るので、小数第6位(約10cm)で切る
+function formatCoordinate(value) {
+    return Number.isFinite(value) ? value.toFixed(6) : "-";
+}
 
-    const accuracy = gps.accuracy == null ? "" : ` ±${gps.accuracy}m`;
-    return `${gps.latitude},${gps.longitude}${accuracy}`;
+// 誤差の情報が来たときだけ「±5m」を添える
+function formatAccuracy(gps) {
+    return gps?.accuracy == null ? "" : ` ±${gps.accuracy}m`;
 }
 
 /*
@@ -80,17 +91,21 @@ function createObservationLines(observation, fallbackDeviceId) {
     const name = createField("device-name", textOrDash(deviceId));
 
     if (!observation) {
-        return [createLine("log-sub", [name, createField("note", "no data")])];
+        return [createLine("log-sub", [name, createField("note", "No Data")])];
     }
 
     const lines = [
         createLine("log-sub", [
             name,
-            createField("detected", `detected=${textOrDash(observation.detectedDevice)}`),
-            createField("rssi", `rssi=${formatRssi(observation.rssi)}`),
-            createField("hr", `hr=${observation.heartRate?.bpm == null ? "-" : `${observation.heartRate.bpm} bpm`}`),
-            createField("gps", `gps=${formatGps(observation.gps)}`),
-            createField("timestamp-raw", `t=${formatTimestamp(observation.timestamp)}`)
+            createField("detected", `相手：${textOrDash(observation.detectedDevice)}`),
+            createField("rssi", `電波強度：${formatRssi(observation.rssi)}`),
+            createField("hr", `心拍：${observation.heartRate?.bpm == null ? "-" : `${observation.heartRate.bpm} bpm`}`),
+            createField("gps gps-latitude", `緯度：${formatCoordinate(observation.gps?.latitude)}`),
+            createField(
+                "gps gps-longitude",
+                `経度：${formatCoordinate(observation.gps?.longitude)}${formatAccuracy(observation.gps)}`
+            ),
+            createField("timestamp-raw", `すれちがった日：${formatTimestamp(observation.timestamp)}`)
         ])
     ];
 
@@ -99,12 +114,12 @@ function createObservationLines(observation, fallbackDeviceId) {
 
     if (recording?.url) {
         const line = createLine("log-sub-deep", [
-            createField("rec", `rec=${textOrDash(recording.fileName)}${duration}`)
+            createField("rec", `録音：${textOrDash(recording.fileName)}${duration}`)
         ]);
         line.appendChild(getAudioPlayer(recording.url));
         lines.push(line);
     } else {
-        lines.push(createLine("log-sub-deep", [createField("rec", "rec=-")]));
+        lines.push(createLine("log-sub-deep", [createField("rec", "録音：-")]));
     }
 
     return lines;
@@ -122,12 +137,12 @@ function renderEvent(event) {
             event.confirmed ? "OK" : "--"
         ),
         createField("devices", `${event.deviceA} ↔ ${event.deviceB}`),
-        createField("rssi", `avg=${formatRssi(event.averageRssi)}`),
+        createField("rssi", `平均電波強度：${formatRssi(event.averageRssi)}`),
         createField("note", event.confirmed ? "双方向確認済み" : "片方向のみ")
     ]));
 
-    block.append(...createObservationLines(event.observations?.[event.deviceA], event.deviceA));
-    block.append(...createObservationLines(event.observations?.[event.deviceB], event.deviceB));
+    // 自分の端末の記録だけを出す。届いていなければ "No Data" になる
+    block.append(...createObservationLines(event.observations?.[MY_DEVICE_ID], MY_DEVICE_ID));
 
     return block;
 }
