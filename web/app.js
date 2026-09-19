@@ -37,6 +37,30 @@ function formatGps(gps) {
     return `${gps.latitude},${gps.longitude}${accuracy}`;
 }
 
+/*
+ * 音声プレイヤーはURLごとに1つだけ作って使い回す。
+ * 2秒ごとの再描画で作り直すと、そのたびに再生が止まってしまうため。
+ */
+const audioPlayers = new Map();
+
+function getAudioPlayer(url) {
+    const existing = audioPlayers.get(url);
+    if (existing) return existing;
+
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.src = url;
+    audio.preload = "none";
+
+    // 再生できないときは何も起きず原因が分からないので、理由を残す。
+    audio.addEventListener("error", () => {
+        console.error(`音声の読み込みに失敗: ${url}`, audio.error);
+    });
+
+    audioPlayers.set(url, audio);
+    return audio;
+}
+
 function createField(className, text) {
     const field = document.createElement("span");
     field.className = `field ${className}`;
@@ -74,15 +98,10 @@ function createObservationLines(observation, fallbackDeviceId) {
     const duration = recording?.durationSec == null ? "" : ` (${recording.durationSec}s)`;
 
     if (recording?.url) {
-        const audio = document.createElement("audio");
-        audio.controls = true;
-        audio.src = recording.url;
-        audio.preload = "none";
-
         const line = createLine("log-sub-deep", [
             createField("rec", `rec=${textOrDash(recording.fileName)}${duration}`)
         ]);
-        line.appendChild(audio);
+        line.appendChild(getAudioPlayer(recording.url));
         lines.push(line);
     } else {
         lines.push(createLine("log-sub-deep", [createField("rec", "rec=-")]));
@@ -120,12 +139,25 @@ function showMessage(eventList, className, text) {
     eventList.replaceChildren(line);
 }
 
+// 前回の応答。同じ内容なら描画をやり直さない。
+let lastEventsJson = "";
+
 async function loadEvents() {
     const eventList = document.getElementById("event-list");
     try {
         const response = await fetch("/events");
         if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        const events = await response.json();
+
+        /*
+         * 中身が前回と同じなら何もしない。
+         * 毎回作り直すと、再生中の音声が止まったり
+         * 文字の選択が解除されたりしてしまう。
+         */
+        const json = await response.text();
+        if (json === lastEventsJson) return;
+        lastEventsJson = json;
+
+        const events = JSON.parse(json);
         if (!Array.isArray(events)) throw new Error("/events の応答が配列ではありません");
 
         const newestEvents = [...events].sort(
@@ -139,6 +171,9 @@ async function loadEvents() {
     } catch (error) {
         console.error("イベント取得失敗:", error);
         showMessage(eventList, "error-message", `イベント取得失敗: ${error.message}`);
+
+        // 画面をエラー表示に置き換えたので、次は内容が同じでも描き直す。
+        lastEventsJson = "";
     }
 }
 
