@@ -1,70 +1,226 @@
+:root {
+    --fg: #000;
+    --bg: #fff;
+}
+
 body {
     font-family:
-        Arial,
-        sans-serif;
+        "SFMono-Regular",
+        Consolas,
+        "Courier New",
+        "BIZ UDGothic",
+        monospace;
 
-    margin: 40px;
+    font-size: 14px;
+    line-height: 1.7;
 
-    background: #f5f5f5;
+    margin: 0;
+    padding: 24px 20px 40px;
+
+    background: var(--bg);
+    color: var(--fg);
+}
+
+/* 選択範囲は端末の反転表示にそろえる */
+::selection {
+    background: var(--fg);
+    color: var(--bg);
 }
 
 main {
-    max-width: 900px;
-    margin: auto;
-
-    background: white;
-
-    padding: 30px;
-
-    border-radius: 10px;
+    max-width: 1000px;
+    margin: 0 auto;
 }
 
-.event-card {
-    margin-top: 20px;
-    padding: 20px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+/* 起動コマンド行 */
+.command-line {
+    margin: 0;
+
+    font-size: 20px;
+    font-weight: bold;
+
+    white-space: pre-wrap;
 }
 
-.observations {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 16px;
+.prompt {
+    margin-right: 0.5ch;
 }
 
-.observation-card {
-    padding: 16px;
-    background: #f7f8fa;
-    border-radius: 6px;
+.prompt::before {
+    content: "user@raspberrypi:~$";
 }
 
-.observation-card p {
-    margin: 8px 0;
+.meta {
+    margin: 0 0 1.2em;
+
+    white-space: pre-wrap;
 }
 
-.recording {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+.meta::before {
+    content: "# ";
 }
 
-audio {
-    width: 100%;
+/* ログ本体 */
+.log {
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-.status {
+.log-event {
+    margin-bottom: 1em;
+}
+
+/* イベント同士のあいだに区切り線を引く */
+.log-event {
+    padding-top: 1em;
+
+    border-top: 1px solid var(--fg);
+}
+
+.log-line {
+    padding: 1px 0;
+}
+
+/* 観測値の行は端末ログのようにぶら下げる */
+.log-sub {
+    padding: 1px 0 1px 2ch;
+}
+
+.log-sub-deep {
+    padding: 1px 0 1px 4ch;
+}
+
+.field {
+    margin-right: 2ch;
+}
+
+.field:last-child {
+    margin-right: 0;
+}
+
+.timestamp::before {
+    content: "[";
+}
+
+.timestamp::after {
+    content: "]";
+}
+
+.event-id::before {
+    content: "#";
+}
+
+.device-name {
     font-weight: bold;
 }
 
+/* 状態は色を使わず、記号と太字だけで区別する */
+.status::before {
+    content: "[";
+}
+
+.status::after {
+    content: "]";
+}
+
 .status-confirmed {
-    color: #18713b;
+    font-weight: bold;
 }
 
 .status-pending {
-    color: #a15c00;
+    font-weight: normal;
 }
 
-.empty-message {
-    color: #666;
-    text-align: center;
+/* 音声プレイヤーも白黒にそろえる */
+audio {
+    height: 28px;
+    max-width: 320px;
+    vertical-align: middle;
+
+    filter: grayscale(1);
 }
+
+.empty-message,
+.error-message {
+    padding: 1px 0;
+}
+
+.error-message {
+    font-weight: bold;
+}
+
+.error-message::before {
+    content: "! ";
+}
+
+/* 末尾の点滅カーソル */
+.cursor-line {
+    margin-top: 0.4em;
+}
+
+.cursor {
+    display: inline-block;
+
+    width: 1ch;
+    height: 1.1em;
+
+    vertical-align: text-bottom;
+
+    background: var(--fg);
+
+    animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cursor {
+        animation: none;
+    }
+}
+
+/* =========================================================
+   表示する情報の取捨選択
+
+   下はすべてコメントアウトしてある＝どれも効いていない状態。
+   隠したい項目の行で、いちばん左のコメント記号と、
+   その次に出てくる閉じ記号の2つを消すと、その項目が消える。
+   戻したいときはコメント記号を書き戻すだけ。
+   ========================================================= */
+
+/* --- 1行目（イベントの要約） --- */
+
+/* .log-line .timestamp { display: none; } */   /* [2026-09-17 21:45:31] 検出時刻 */
+/* .log-line .event-id  { display: none; } */   /* #0012 通し番号 */
+/* .log-line .status    { display: none; } */   /* [OK] / [--] 確認状態 */
+/* .log-line .devices   { display: none; } */   /* pi-a ↔ pi-b 機器ペア */
+/* .log-line .rssi      { display: none; } */   /* avg=-62.4 dBm 平均電波強度 */
+/* .log-line .note      { display: none; } */   /* 双方向確認済み / 片方向のみ */
+
+/* --- 2〜3行目（機器ごとの観測値） --- */
+
+/* .log-sub { display: none; } */               /* ↓の個別指定ごと、観測行をまとめて消す */
+
+/* .log-sub .device-name   { display: none; } */  /* pi-a 機器名 */
+/* .log-sub .detected      { display: none; } */  /* detected=pi-b 相手の機器 */
+/* .log-sub .rssi          { display: none; } */  /* rssi=-60.8 dBm 電波強度 */
+/* .log-sub .hr            { display: none; } */  /* hr=72 bpm 心拍 */
+/* .log-sub .gps           { display: none; } */  /* gps=35.68,139.76 ±5m 位置 */
+/* .log-sub .timestamp-raw { display: none; } */  /* t=2026-09-17 21:45:30 観測時刻 */
+/* .log-sub .note          { display: none; } */  /* no data 観測値が無いとき */
+
+/* --- 4行目（録音） --- */
+
+/* .log-sub-deep { display: none; } */          /* 録音の行ごと消す（ファイル名＋プレイヤー） */
+
+/* .log-sub-deep .rec { display: none; } */     /* rec=rec_0012.wav (5s) ファイル名だけ消す */
+/* .log-sub-deep audio { display: none; } */    /* 音声プレイヤーだけ消す */

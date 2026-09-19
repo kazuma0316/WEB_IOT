@@ -1,86 +1,123 @@
+// 端末ログらしく "2026-09-17 21:45:31" の固定幅で表示する
+const timeFormatter = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+});
+
 function textOrDash(value) {
     return value === null || value === undefined || value === "" ? "-" : String(value);
 }
 
 function formatTimestamp(value) {
     const date = new Date(value);
-    return Number.isNaN(date.getTime())
-        ? "-"
-        : date.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+    if (Number.isNaN(date.getTime())) return "????-??-?? ??:??:??";
+
+    const parts = {};
+    for (const part of timeFormatter.formatToParts(date)) parts[part.type] = part.value;
+
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
-function createField(label, value) {
-    const row = document.createElement("p");
-    const heading = document.createElement("strong");
-    heading.textContent = `${label}: `;
-    row.append(heading, document.createTextNode(textOrDash(value)));
-    return row;
+function formatRssi(value) {
+    const rssi = Number(value);
+    // 平均RSSIは割り算の結果なので小数第1位で丸める
+    return Number.isFinite(rssi) ? `${Math.round(rssi * 10) / 10} dBm` : "-";
 }
 
-function createObservationCard(observation, fallbackDeviceId) {
-    const card = document.createElement("section");
-    card.className = "observation-card";
-    const title = document.createElement("h3");
-    title.textContent = observation?.deviceId ?? fallbackDeviceId;
-    card.appendChild(title);
+function formatGps(gps) {
+    if (gps?.latitude == null || gps?.longitude == null) return "-";
+
+    const accuracy = gps.accuracy == null ? "" : ` ±${gps.accuracy}m`;
+    return `${gps.latitude},${gps.longitude}${accuracy}`;
+}
+
+function createField(className, text) {
+    const field = document.createElement("span");
+    field.className = `field ${className}`;
+    field.textContent = text;
+    return field;
+}
+
+function createLine(className, fields) {
+    const line = document.createElement("div");
+    line.className = className;
+    line.append(...fields);
+    return line;
+}
+
+function createObservationLines(observation, fallbackDeviceId) {
+    const deviceId = observation?.deviceId ?? fallbackDeviceId;
+    const name = createField("device-name", textOrDash(deviceId));
 
     if (!observation) {
-        card.appendChild(createField("Data", "No data"));
-        return card;
+        return [createLine("log-sub", [name, createField("note", "no data")])];
     }
 
-    card.appendChild(createField("Device ID", observation.deviceId));
-    card.appendChild(createField("Detected Device", observation.detectedDevice));
-    card.appendChild(createField("RSSI", observation.rssi == null ? null : `${observation.rssi} dBm`));
-    card.appendChild(createField("Timestamp", formatTimestamp(observation.timestamp)));
-    card.appendChild(createField(
-        "Heart Rate",
-        observation.heartRate?.bpm == null ? null : `${observation.heartRate.bpm} bpm`
-    ));
+    const lines = [
+        createLine("log-sub", [
+            name,
+            createField("detected", `detected=${textOrDash(observation.detectedDevice)}`),
+            createField("rssi", `rssi=${formatRssi(observation.rssi)}`),
+            createField("hr", `hr=${observation.heartRate?.bpm == null ? "-" : `${observation.heartRate.bpm} bpm`}`),
+            createField("gps", `gps=${formatGps(observation.gps)}`),
+            createField("timestamp-raw", `t=${formatTimestamp(observation.timestamp)}`)
+        ])
+    ];
 
-    const latitude = observation.gps?.latitude;
-    const longitude = observation.gps?.longitude;
-    card.appendChild(createField(
-        "GPS",
-        latitude == null || longitude == null ? null : `${latitude}, ${longitude}`
-    ));
+    const recording = observation.recording;
+    const duration = recording?.durationSec == null ? "" : ` (${recording.durationSec}s)`;
 
-    const recordingUrl = observation.recording?.url;
-    if (recordingUrl) {
-        const wrapper = document.createElement("div");
-        wrapper.className = "recording";
-        const label = document.createElement("strong");
-        label.textContent = "Recording: ";
+    if (recording?.url) {
         const audio = document.createElement("audio");
         audio.controls = true;
-        audio.src = recordingUrl;
+        audio.src = recording.url;
         audio.preload = "none";
-        wrapper.append(label, audio);
-        card.appendChild(wrapper);
+
+        const line = createLine("log-sub-deep", [
+            createField("rec", `rec=${textOrDash(recording.fileName)}${duration}`)
+        ]);
+        line.appendChild(audio);
+        lines.push(line);
     } else {
-        card.appendChild(createField("Recording", null));
+        lines.push(createLine("log-sub-deep", [createField("rec", "rec=-")]));
     }
 
-    return card;
+    return lines;
 }
 
 function renderEvent(event) {
-    const article = document.createElement("article");
-    article.className = "event-card";
-    const heading = document.createElement("h2");
-    heading.textContent = `Event ${event.id}: ${event.deviceA} ↔ ${event.deviceB}`;
-    const status = document.createElement("p");
-    status.className = event.confirmed ? "status status-confirmed" : "status status-pending";
-    status.textContent = event.confirmed ? "双方向確認済み" : "片方向のみ";
+    const block = document.createElement("div");
+    block.className = "log-event";
 
-    const observations = document.createElement("div");
-    observations.className = "observations";
-    observations.append(
-        createObservationCard(event.observations?.[event.deviceA], event.deviceA),
-        createObservationCard(event.observations?.[event.deviceB], event.deviceB)
-    );
-    article.append(heading, status, observations);
-    return article;
+    block.appendChild(createLine("log-line", [
+        createField("timestamp", formatTimestamp(event.createdAt)),
+        createField("event-id", String(event.id).padStart(4, "0")),
+        createField(
+            event.confirmed ? "status status-confirmed" : "status status-pending",
+            event.confirmed ? "OK" : "--"
+        ),
+        createField("devices", `${event.deviceA} ↔ ${event.deviceB}`),
+        createField("rssi", `avg=${formatRssi(event.averageRssi)}`),
+        createField("note", event.confirmed ? "双方向確認済み" : "片方向のみ")
+    ]));
+
+    block.append(...createObservationLines(event.observations?.[event.deviceA], event.deviceA));
+    block.append(...createObservationLines(event.observations?.[event.deviceB], event.deviceB));
+
+    return block;
+}
+
+function showMessage(eventList, className, text) {
+    const line = document.createElement("div");
+    line.className = className;
+    line.textContent = text;
+    eventList.replaceChildren(line);
 }
 
 async function loadEvents() {
@@ -91,21 +128,17 @@ async function loadEvents() {
         const events = await response.json();
         if (!Array.isArray(events)) throw new Error("/events の応答が配列ではありません");
 
-        eventList.replaceChildren();
         const newestEvents = [...events].sort(
             (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
         );
         if (newestEvents.length === 0) {
-            const message = document.createElement("p");
-            message.className = "empty-message";
-            message.textContent = "接近イベントはまだありません。";
-            eventList.appendChild(message);
+            showMessage(eventList, "empty-message", "接近イベントはまだありません。");
             return;
         }
-        newestEvents.forEach(event => eventList.appendChild(renderEvent(event)));
+        eventList.replaceChildren(...newestEvents.map(renderEvent));
     } catch (error) {
         console.error("イベント取得失敗:", error);
-        eventList.textContent = "イベントを取得できませんでした。";
+        showMessage(eventList, "error-message", `イベント取得失敗: ${error.message}`);
     }
 }
 
